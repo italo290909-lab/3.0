@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Minas Reciclagem - Sistema Nuvem</title>
+    
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    
+    <style>
+        :root { --primary: #065f46; --success: #10b981; --warning: #f59e0b; --dark: #111827; --danger: #e11d48; }
+        body { font-family: -apple-system, system-ui, sans-serif; background: #f3f4f6; margin: 0; padding: 10px; color: #1f2937; }
+
+        /* Telas de Navegação */
+        #loginScreen { position: fixed; inset: 0; background: var(--dark); color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; padding: 20px; text-align: center; }
+        .app-card { background: white; border-radius: 20px; padding: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 100%; max-width: 450px; margin: 0 auto; }
+
+        /* Painel de Peso */
+        .display { background: #000; color: #22c55e; padding: 25px; border-radius: 15px; text-align: right; border: 4px solid #374151; margin-bottom: 15px; box-shadow: inset 0 0 10px rgba(0,255,0,0.2); }
+        #pesoValor { font-size: 3.8rem; font-weight: bold; font-family: 'Courier New', monospace; }
+
+        /* Estilização de Formulários */
+        input { padding: 14px; border: 1px solid #d1d5db; border-radius: 10px; font-size: 16px; width: 100%; box-sizing: border-box; margin-bottom: 10px; background: #f9fafb; }
+        button { padding: 16px; border: none; border-radius: 12px; font-weight: bold; color: white; cursor: pointer; width: 100%; transition: 0.2s; margin-bottom: 8px; }
+        button:active { transform: scale(0.96); opacity: 0.9; }
+        
+        .btn-conn { background: var(--dark); }
+        .btn-entry { background: var(--warning); }
+        .btn-finish { background: var(--success); font-size: 1.1rem; border-bottom: 4px solid #059669; }
+        .btn-logout { background: none; color: #9ca3af; font-size: 0.8rem; width: auto; margin: 0; padding: 5px; }
+
+        /* Lista de Pátio */
+        .patio-item { background: #fff; border: 1px solid #e5e7eb; padding: 12px; border-radius: 12px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+        .tag-placa { background: var(--primary); color: white; padding: 4px 8px; border-radius: 6px; font-weight: bold; font-family: monospace; }
+    </style>
+</head>
+<body>
+
+<div id="loginScreen">
+    <h1 style="color: var(--success); letter-spacing: 2px;">MINAS RECICLAGEM</h1>
+    <p style="color: #9ca3af; margin-bottom: 30px;">Acesso Restrito a Funcionários</p>
+    <input type="email" id="email" placeholder="E-mail" style="max-width: 300px;">
+    <input type="password" id="senha" placeholder="Senha" style="max-width: 300px;">
+    <button onclick="fazerLogin()" style="background: var(--success); max-width: 300px;">ENTRAR NO SISTEMA</button>
+    <p id="loginErro" style="color:var(--danger); font-size:0.8rem; margin-top: 10px;"></p>
+</div>
+
+<div id="appMain" class="app-card" style="display:none;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+        <span style="font-size:0.75rem; color:#6b7280;">👤 <span id="userName">...</span></span>
+        <button onclick="logout()" class="btn-logout">Sair do Sistema</button>
+    </div>
+
+    <button id="btnConectar" class="btn-conn">🔌 CONECTAR BALANÇA USB</button>
+
+    <div class="display">
+        <div style="text-align:left; font-size:0.7rem; color:#4ade80;">PESO EM TEMPO REAL</div>
+        <span id="pesoValor">0.00</span><small> kg</small>
+    </div>
+
+    <div class="form">
+        <input type="text" id="placa" placeholder="PLACA (EX: ABC1234)" style="text-transform:uppercase;">
+        <input type="text" id="cliente" placeholder="NOME DO CLIENTE">
+        <input type="text" id="motorista" placeholder="NOME DO MOTORISTA">
+        <input type="text" id="material" placeholder="TIPO DE MATERIAL">
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 5px;">
+            <button onclick="salvarEntrada()" class="btn-entry">📥 REGISTRAR ENTRADA</button>
+            <button onclick="limparCampos()" style="background:#6b7280;">LIMPAR TELA</button>
+        </div>
+        <button onclick="finalizarPesagem()" class="btn-finish">💾 FINALIZAR E SALVAR SAÍDA</button>
+    </div>
+
+    <div style="margin-top:25px; border-top:2px solid #f3f4f6; padding-top:15px;">
+        <h4 style="margin:0 0 12px 0; color:var(--primary); display: flex; align-items: center; gap: 8px;">
+            🚛 VEÍCULOS NO PÁTIO (NUVEM)
+        </h4>
+        <div id="listaPatio"></div>
+    </div>
+</div>
+
+<script>
+    // Suas novas chaves de configuração
+    const firebaseConfig = {
+        apiKey: "AIzaSyCIqRx4kzPTflzHL0YGnmW5T08n-0I8Ip0",
+        authDomain: "balanca-minas-reciclagem-393f3.firebaseapp.com",
+        projectId: "balanca-minas-reciclagem-393f3",
+        storageBucket: "balanca-minas-reciclagem-393f3.firebasestorage.app",
+        messagingSenderId: "34363772785",
+        appId: "1:34363772785:web:bba49f059e0118815030d0",
+        measurementId: "G-H2T9T6C7E5"
+    };
+
+    // Inicialização
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    let pesoBalança = 0;
+
+    // --- FUNÇÕES DE ACESSO ---
+    async function fazerLogin() {
+        const email = document.getElementById('email').value;
+        const senha = document.getElementById('senha').value;
+        try {
+            await auth.signInWithEmailAndPassword(email, senha);
+        } catch (e) {
+            document.getElementById('loginErro').innerText = "E-mail ou senha incorretos.";
+        }
+    }
+
+    function logout() { auth.signOut(); location.reload(); }
+
+    auth.onAuthStateChanged(user => {
+        if (user) {
+            document.getElementById('loginScreen').style.display = 'none';
+            document.getElementById('appMain').style.display = 'block';
+            document.getElementById('userName').innerText = user.email.split('@')[0];
+            ouvirPatio();
+        }
+    });
+
+    // --- CONEXÃO COM A BALANÇA ---
+    document.getElementById('btnConectar').onclick = async () => {
+        try {
+            const port = await navigator.serial.requestPort();
+            await port.open({ baudRate: 9600 });
+            document.getElementById('btnConectar').innerText = "✅ BALANÇA CONECTADA";
+            document.getElementById('btnConectar').style.background = "#065f46";
+            
+            const decoder = new TextDecoderStream();
+            port.readable.pipeTo(decoder.writable);
+            const reader = decoder.readable.getReader();
+            while (true) {
+                const { value, done } = await reader.read();
+                if (value) {
+                    const m = value.match(/[-+]?[0-9]*\.?[0-9]+/);
+                    if (m) {
+                        pesoBalança = parseFloat(m[0]);
+                        document.getElementById('pesoValor').innerText = pesoBalança.toFixed(2);
+                    }
+                }
+            }
+        } catch (e) { alert("Erro ao conectar USB. Verifique o cabo ou use o Chrome."); }
+    };
+
+    // --- OPERAÇÕES NA NUVEM ---
+    async function salvarEntrada() {
+        const p = document.getElementById('placa').value.toUpperCase();
+        if(!p) return alert("Por favor, insira a placa do veículo!");
+        
+        try {
+            await db.collection("patio").doc(p).set({
+                placa: p,
+                cliente: document.getElementById('cliente').value || "Não informado",
+                motorista: document.getElementById('motorista').value || "Não informado",
+                material: document.getElementById('material').value || "Reciclável",
+                tara: pesoBalança,
+                dataEntrada: firebase.firestore.FieldValue.serverTimestamp(),
+                operadorEntrada: auth.currentUser.email
+            });
+            alert("Veículo registrado no pátio!");
+            limparCampos();
+        } catch (e) { alert("Erro ao salvar: Verifique as regras do Firestore."); }
+    }
+
+    function ouvirPatio() {
+        db.collection("patio").orderBy("dataEntrada", "desc").onSnapshot(snap => {
+            const lista = document.getElementById('listaPatio');
+            lista.innerHTML = "";
+            snap.forEach(doc => {
+                const v = doc.data();
+                lista.innerHTML += `
+                    <div class="patio-item">
+                        <span><span class="tag-placa">${v.placa}</span><br><small>${v.cliente}</small></span>
+                        <button onclick="puxarVeiculo('${v.placa}')" style="width:auto; padding:6px 12px; margin:0; font-size:0.75rem; background:var(--primary)">Puxar</button>
+                    </div>`;
+            });
+        });
+    }
+
+    async function puxarVeiculo(placa) {
+        const doc = await db.collection("patio").doc(placa).get();
+        const d = doc.data();
+        document.getElementById('placa').value = d.placa;
+        document.getElementById('cliente').value = d.cliente;
+        document.getElementById('motorista').value = d.motorista;
+        document.getElementById('material').value = d.material;
+        alert("Veículo carregado! Tara salva: " + d.tara + " kg");
+    }
+
+    async function finalizarPesagem() {
+        const p = document.getElementById('placa').value.toUpperCase();
+        const docRef = db.collection("patio").doc(p);
+        const doc = await docRef.get();
+        
+        if(!doc.exists()) return alert("Erro: Este veículo não possui registro de entrada no pátio!");
+
+        const dEntrada = doc.data();
+        const liquido = pesoBalança - dEntrada.tara;
+
+        // Salva no histórico definitivo
+        await db.collection("historico").add({
+            ...dEntrada,
+            bruto: pesoBalança,
+            liquido: liquido,
+            dataSaida: firebase.firestore.FieldValue.serverTimestamp(),
+            operadorSaida: auth.currentUser.email
+        });
+
+        await docRef.delete();
+        alert(`SUCESSO!\nLíquido: ${liquido.toFixed(2)} kg`);
+        limparCampos();
+    }
+
+    function limparCampos() { document.querySelectorAll('input').forEach(i => i.value = ''); }
+</script>
+</body>
+</html>
